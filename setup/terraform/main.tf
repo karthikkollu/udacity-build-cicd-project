@@ -46,7 +46,25 @@ resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public_subnet.id
   route_table_id = aws_route_table.public.id
 }
+resource "aws_eip" "nat" {
+}
 
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public_subnet.id
+
+  depends_on = [aws_internet_gateway.igw]
+
+  tags = {
+    Name = "udacity-nat"
+  }
+}
+
+resource "aws_route" "private_nat" {
+  route_table_id         = aws_route_table.private.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.nat.id
+}
 # Create a private subnet
 resource "aws_subnet" "private_subnet" {
   vpc_id            = aws_vpc.vpc.id
@@ -317,8 +335,8 @@ resource "aws_iam_user" "github_action_user" {
 }
 
 #resource "aws_iam_user_policy" "github_action_user_permission" {
- # user   = aws_iam_user.github_action_user.name
- # policy = data.aws_iam_policy_document.github_policy.json
+# user   = aws_iam_user.github_action_user.name
+#policy = data.aws_iam_policy_document.github_policy.json
 #}
 
 data "aws_iam_policy_document" "github_policy" {
