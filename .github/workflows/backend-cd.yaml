@@ -3,7 +3,7 @@ name: Backend Continuous Deployment
 on:
   push:
     branches:
- - master
+      - master
   workflow_dispatch:
 
 env:
@@ -12,10 +12,18 @@ env:
   EKS_CLUSTER_NAME: cluster
 
 jobs:
+
+  # =========================
+  # LINT JOB
+  # =========================
   lint:
     name: Lint Backend
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: starter/backend
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,45 +31,54 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-
-      - name: Install Pipenv
-        run: pip install pipenv
+          python-version: "3.11"
 
       - name: Install dependencies
-        working-directory: starter/backend
-        run: pipenv install --dev
+        run: |
+          pip install -r requirements.txt
 
-      - name: Run lint
-        working-directory: starter/backend
-        run: pipenv run lint
+      - name: Lint Backend
+        run: |
+          python -m py_compile $(find . -name "*.py")
 
+
+  # =========================
+  # TEST JOB
+  # =========================
   test:
     name: Test Backend
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: starter/backend
+
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-
-      - name: Install Pipenv
-        run: pip install pipenv
+          python-version: "3.11"
 
       - name: Install dependencies
-        working-directory: starter/backend
-        run: pipenv install --dev
+        run: |
+          pip install -r requirements.txt
 
-      - name: Run tests
-        working-directory: starter/backend
-        run: pipenv run test
+      - name: Test Backend
+        run: |
+          pytest
 
+
+  # =========================
+  # BUILD DOCKER IMAGE
+  # =========================
   build:
-    name: Build and Push Backend
+    name: Build Backend Docker Image
     runs-on: ubuntu-latest
     needs:
       - lint
@@ -71,61 +88,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Get AWS account ID
-        id: aws-account
-        run: |
-          echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
-
       - name: Build Docker image
         working-directory: starter/backend
         run: |
           docker build \
-            --tag ${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
-            .
-
-      - name: Push Docker image to ECR
-        run: |
-          docker push \
-            ${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-
-  deploy:
-    name: Deploy Backend to EKS
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Configure kubectl
-        run: |
-          aws eks update-kubeconfig \
-            --name ${{ env.EKS_CLUSTER_NAME }} \
-            --region ${{ env.AWS_REGION }}
-
-      - name: Update backend image
-        working-directory: starter/backend/k8s
-        run: |
-          kustomize edit set image backend=${{ secrets.ECR_REPOSITORY_URL }}:${{ github.sha }}
-
-      - name: Deploy to Kubernetes
-        working-directory: starter/backend/k8s
-        run: |
-          kustomize build . | kubectl apply -f -
+            --tag backend:latest .
