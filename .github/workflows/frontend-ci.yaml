@@ -3,8 +3,8 @@ name: Frontend Continuous Integration
 on:
   pull_request:
     branches:
- - master
-  workflow_dispatch:
+     - master
+     workflow_dispatch:
 
 jobs:
 
