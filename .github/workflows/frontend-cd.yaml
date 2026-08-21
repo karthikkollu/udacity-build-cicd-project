@@ -13,14 +13,15 @@ env:
 
 jobs:
 
-  # =========================================================
-  # 1. LINT FRONTEND
-  # =========================================================
+  # =====================================================
+  # LINT FRONTEND
+  # =====================================================
   lint:
     name: Lint Frontend
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -40,14 +41,15 @@ jobs:
         run: npm run lint
 
 
-  # =========================================================
-  # 2. TEST FRONTEND
-  # =========================================================
+  # =====================================================
+  # TEST FRONTEND
+  # =====================================================
   test:
     name: Test Frontend
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -67,9 +69,9 @@ jobs:
         run: npm test -- --watch=false
 
 
-  # =========================================================
-  # 3. DEPLOY FRONTEND
-  # =========================================================
+  # =====================================================
+  # DEPLOY FRONTEND
+  # =====================================================
   deploy:
     name: Deploy Frontend
     runs-on: ubuntu-latest
@@ -80,16 +82,16 @@ jobs:
 
     steps:
 
-      # -----------------------------------------------------
-      # Checkout
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # CHECKOUT
+      # -------------------------------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
 
-      # -----------------------------------------------------
-      # AWS credentials
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # AWS CREDENTIALS
+      # -------------------------------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -98,16 +100,37 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 
-      # -----------------------------------------------------
-      # Login to Amazon ECR
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # GET AWS ACCOUNT ID
+      # -------------------------------------------------
+      - name: Get AWS Account ID
+        id: aws-account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
+
+      # -------------------------------------------------
+      # LOGIN TO AMAZON ECR
+      # -------------------------------------------------
       - name: Login to Amazon ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
 
-      # -----------------------------------------------------
-      # Build Docker image
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # VERIFY ECR REPOSITORY
+      # -------------------------------------------------
+      - name: Verify ECR repository
+        run: |
+          aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            --region "$AWS_REGION"
+
+
+      # -------------------------------------------------
+      # BUILD DOCKER IMAGE
+      # -------------------------------------------------
       - name: Build Frontend Docker image
         working-directory: starter/frontend
         run: |
@@ -116,54 +139,64 @@ jobs:
             -t frontend:latest .
 
 
-      # -----------------------------------------------------
-      # Tag Docker image
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # TAG DOCKER IMAGE
+      # -------------------------------------------------
       - name: Tag Docker image
         run: |
           docker tag frontend:latest \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
 
-      # -----------------------------------------------------
-      # Push Docker image to ECR
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # VERIFY DOCKER LOGIN
+      # -------------------------------------------------
+      - name: Verify Docker ECR login
+        run: |
+          echo "ECR Registry:"
+          echo "${{ steps.login-ecr.outputs.registry }}"
+
+
+      # -------------------------------------------------
+      # PUSH DOCKER IMAGE
+      # -------------------------------------------------
       - name: Push Docker image
         run: |
           docker push \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
 
-      # -----------------------------------------------------
-      # Configure kubectl for EKS
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # UPDATE KUBECONFIG
+      # -------------------------------------------------
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig \
-            --region ${{ env.AWS_REGION }} \
-            --name ${{ env.EKS_CLUSTER_NAME }}
+            --region "$AWS_REGION" \
+            --name "$EKS_CLUSTER_NAME"
 
 
-      # -----------------------------------------------------
-      # Update Kubernetes deployment image
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # UPDATE KUBERNETES DEPLOYMENT
+      # -------------------------------------------------
       - name: Update Kubernetes deployment
         run: |
           kubectl set image deployment/frontend \
-            frontend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
+            frontend=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
 
-      # -----------------------------------------------------
-      # Wait for deployment
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # WAIT FOR DEPLOYMENT
+      # -------------------------------------------------
       - name: Wait for deployment
         run: |
-          kubectl rollout status deployment/frontend --timeout=180s
+          kubectl rollout status deployment/frontend \
+            --timeout=180s
 
 
-      # -----------------------------------------------------
-      # Check Kubernetes resources
-      # -----------------------------------------------------
+      # -------------------------------------------------
+      # VERIFY DEPLOYMENT
+      # -------------------------------------------------
       - name: Verify deployment
         run: |
           kubectl get deployments
