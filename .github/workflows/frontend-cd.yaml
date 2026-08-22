@@ -135,7 +135,7 @@ jobs:
         working-directory: starter/frontend
         run: |
           docker build \
-            --build-arg REACT_APP_MOVIE_API_URL=http://localhost:5000 \
+            --build-arg REACT_APP_MOVIE_API_URL="${{ secrets.REACT_APP_MOVIE_API_URL }}" \
             -t frontend:latest .
 
 
@@ -180,7 +180,7 @@ jobs:
       # UPDATE KUBERNETES DEPLOYMENT
       # -------------------------------------------------
       - name: Update Kubernetes deployment
-        run: |
+      run: |
           kubectl set image deployment/frontend \
             frontend=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
