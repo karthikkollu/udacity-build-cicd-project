@@ -1,77 +1,77 @@
 name: Frontend Continuous Deployment
 
 on:
-  push:
-    branches:
-      - master
   workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: frontend
   EKS_CLUSTER_NAME: cluster
+  EKS_NODEGROUP_NAME: udacity
 
 jobs:
 
-  # =====================================================
-  # LINT FRONTEND
-  # =====================================================
+  # =========================
+  # LINT JOB
+  # =========================
   lint:
     name: Lint Frontend
     runs-on: ubuntu-latest
 
-    steps:
+    defaults:
+      run:
+        working-directory: starter/frontend
 
+    steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 18
           cache: npm
           cache-dependency-path: starter/frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: starter/frontend
         run: npm ci
 
-      - name: Run lint
-        working-directory: starter/frontend
+      - name: Lint Frontend
         run: npm run lint
 
 
-  # =====================================================
-  # TEST FRONTEND
-  # =====================================================
+  # =========================
+  # TEST JOB
+  # =========================
   test:
     name: Test Frontend
     runs-on: ubuntu-latest
 
-    steps:
+    defaults:
+      run:
+        working-directory: starter/frontend
 
+    steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 18
           cache: npm
           cache-dependency-path: starter/frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: starter/frontend
         run: npm ci
 
-      - name: Run tests
-        working-directory: starter/frontend
-        run: npm test -- --watch=false
+      - name: Test Frontend
+        run: npm test -- --watchAll=false
 
 
-  # =====================================================
-  # DEPLOY FRONTEND
-  # =====================================================
+  # =========================
+  # DEPLOY JOB
+  # =========================
   deploy:
     name: Deploy Frontend
     runs-on: ubuntu-latest
@@ -82,16 +82,16 @@ jobs:
 
     steps:
 
-      # -------------------------------------------------
+      # -------------------------
       # CHECKOUT
-      # -------------------------------------------------
+      # -------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
 
-      # -------------------------------------------------
+      # -------------------------
       # AWS CREDENTIALS
-      # -------------------------------------------------
+      # -------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -100,105 +100,57 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 
-      # -------------------------------------------------
-      # GET AWS ACCOUNT ID
-      # -------------------------------------------------
-      - name: Get AWS Account ID
-        id: aws-account
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
-
-
-      # -------------------------------------------------
+      # -------------------------
       # LOGIN TO AMAZON ECR
-      # -------------------------------------------------
+      # -------------------------
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
 
-      # -------------------------------------------------
-      # VERIFY ECR REPOSITORY
-      # -------------------------------------------------
-      - name: Verify ECR repository
-        run: |
-          aws ecr describe-repositories \
-            --repository-names "$ECR_REPOSITORY" \
-            --region "$AWS_REGION"
-
-
-      # -------------------------------------------------
-      # BUILD DOCKER IMAGE
-      # -------------------------------------------------
+      # -------------------------
+      # BUILD FRONTEND IMAGE
+      # -------------------------
       - name: Build Frontend Docker image
         working-directory: starter/frontend
         run: |
           docker build \
-            --build-arg REACT_APP_MOVIE_API_URL="${{ secrets.REACT_APP_MOVIE_API_URL }}" \
-            -t frontend:latest .
+            --build-arg REACT_APP_MOVIE_API_URL=${{ secrets.REACT_APP_MOVIE_API_URL }} \
+            --tag ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
+            .
 
 
-      # -------------------------------------------------
-      # TAG DOCKER IMAGE
-      # -------------------------------------------------
-      - name: Tag Docker image
-        run: |
-          docker tag frontend:latest \
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
-
-
-      # -------------------------------------------------
-      # VERIFY DOCKER LOGIN
-      # -------------------------------------------------
-      - name: Verify Docker ECR login
-        run: |
-          echo "ECR Registry:"
-          echo "${{ steps.login-ecr.outputs.registry }}"
-
-
-      # -------------------------------------------------
-      # PUSH DOCKER IMAGE
-      # -------------------------------------------------
-      - name: Push Docker image
+      # -------------------------
+      # PUSH IMAGE TO ECR
+      # -------------------------
+      - name: Push Frontend image to ECR
         run: |
           docker push \
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
 
-      # -------------------------------------------------
+      # -------------------------
       # UPDATE KUBECONFIG
-      # -------------------------------------------------
+      # -------------------------
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig \
-            --region "$AWS_REGION" \
-            --name "$EKS_CLUSTER_NAME"
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
 
 
-      # -------------------------------------------------
-      # UPDATE KUBERNETES DEPLOYMENT
-      # -------------------------------------------------
-      - name: Update Kubernetes deployment
-      run: |
+      # -------------------------
+      # UPDATE FRONTEND DEPLOYMENT
+      # -------------------------
+      - name: Deploy Frontend to EKS
+        run: |
           kubectl set image deployment/frontend \
-            frontend=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            frontend=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
 
 
-      # -------------------------------------------------
+      # -------------------------
       # WAIT FOR DEPLOYMENT
-      # -------------------------------------------------
-      - name: Wait for deployment
+      # -------------------------
+      - name: Verify Frontend deployment
         run: |
-          kubectl rollout status deployment/frontend \
-            --timeout=180s
-
-
-      # -------------------------------------------------
-      # VERIFY DEPLOYMENT
-      # -------------------------------------------------
-      - name: Verify deployment
-        run: |
-          kubectl get deployments
-          kubectl get pods
-          kubectl get services
+          kubectl rollout status deployment/frontend --timeout=5m
