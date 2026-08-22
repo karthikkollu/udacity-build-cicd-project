@@ -406,6 +406,38 @@ kustomize edit set image backend=<ECR_REPO_URL>:<NEW_TAG_HERE>
 # Apply the manifests to the cluster
 kustomize build | kubectl apply -f -
 ```
+# Working Application URLs
+
+## Frontend
+
+http://a964b2d28f2594598956b829d5d35dba-590784298.us-east-1.elb.amazonaws.com
+
+## Backend API
+
+http://aa13afde50be24f47b107b28fa7f2f80-869025818.us-east-1.elb.amazonaws.com/movies
+# Verification Screenshots
+
+## Frontend
+![Frontend](screenshots/frontend-app.png)
+
+## Backend API
+![Backend API](screenshots/backend-api.png)
+
+## Backend CI
+![Backend CI](screenshots/backend-ci.png)
+
+## Backend CD
+![Backend CD](screenshots/backend-cd.png)
+
+## Frontend CI
+![Frontend CI](screenshots/frontend-ci.png)
+
+## Frontend CD
+![Frontend CD](screenshots/frontend-cd.png)
+
+## Kubernetes
+![Kubernetes](screenshots/kubernetes.png)
+
 
 ## License
 
